@@ -1,0 +1,119 @@
+import sqlite3
+import os
+import subprocess
+from pynput import keyboard
+
+# Database file name
+DB_FILE = 'aliases.db'
+
+# Ensure the aliases table exists and is properly structured
+def update_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    # Create table if it doesn't exist
+    cursor.execute('''CREATE TABLE IF NOT EXISTS aliases (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alias TEXT UNIQUE,
+                        full_path TEXT)''')
+    
+    # Add the full_path column if it doesn't already exist
+    try:
+        cursor.execute("ALTER TABLE aliases ADD COLUMN full_path TEXT")
+        print("Column 'full_path' added successfully.")
+    except sqlite3.OperationalError:
+        print("Column 'full_path' already exists or table structure is fine.")
+    
+    conn.commit()
+    conn.close()
+
+# Add alias to the database
+def add_alias():
+    alias = input("Enter alias: ")
+    full_path = input("Enter full app path: ")
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+
+    # Check if alias already exists
+    cursor.execute("SELECT * FROM aliases WHERE alias=?", (alias,))
+    if cursor.fetchone():
+        print(f"Alias '{alias}' already exists!")
+    else:
+        cursor.execute("INSERT INTO aliases (alias, full_path) VALUES (?, ?)", (alias, full_path))
+        conn.commit()
+        print(f"Alias '{alias}' added successfully.")
+
+    conn.close()
+
+# Start listening for hotkeys
+def listen_for_hotkey():
+    def on_press(key):
+        try:
+            if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+                if keyboard.Listener.suppress:
+                    return False
+        except AttributeError:
+            pass
+
+    def on_release(key):
+        try:
+            if key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+                return False
+        except AttributeError:
+            pass
+
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    listener.start()
+
+# Run alias
+def run_alias(alias):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT full_path FROM aliases WHERE alias=?", (alias,))
+    result = cursor.fetchone()
+
+    if result:
+        full_path = result[0]
+        if os.path.exists(full_path):
+            print(f"Running {alias}...")
+            subprocess.Popen([full_path])  # Open the application
+        else:
+            print("Invalid application path.")
+    else:
+        print("Alias not found.")
+    
+    conn.close()
+
+# Process alias after listening for hotkey
+def process_alias():
+    alias = input("Enter alias to execute: ")
+    run_alias(alias)
+
+# Main menu
+def main():
+    update_db()  # Ensure the database is correctly structured
+
+    while True:
+        print("\nAlias Manager Initialized.")
+        print("1. Add Alias")
+        print("2. Start Listening")
+        print("3. Exit")
+        choice = input("Choose an option: ")
+
+        if choice == "1":
+            add_alias()
+        elif choice == "2":
+            print("Listening for 'Ctrl + Shift + o'...")
+            listen_for_hotkey()
+            keyboard.add_hotkey('ctrl+shift+o', lambda: process_alias())  # Listen for the hotkey and process alias
+            keyboard.wait()  # Keeps the program running and listens for hotkey presses
+        elif choice == "3":
+            break
+        else:
+            print("Invalid choice. Please select again.")
+
+if __name__ == "__main__":
+    main()
+
